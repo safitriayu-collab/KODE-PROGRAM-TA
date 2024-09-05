@@ -1,0 +1,144 @@
+import pandas as pd
+from sklearn.metrics import mean_squared_error
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+from matplotlib import pyplot as plt
+import warnings
+warnings.filterwarnings('ignore')
+
+# Memuat dataset dari direktori lokal
+file_path = r'C:\Users\ASUS\OneDrive\Documents\kuliahayu\FINAL\datasetSensor100.csv'  
+data = pd.read_csv(file_path)
+
+# Menampilkan beberapa baris pertama untuk memeriksa apakah data telah dimuat dengan benar
+print(data.head())
+
+# Langkah 1: Memuat data
+data['dates'] = pd.to_datetime(data['dates'])
+data.set_index('dates', inplace=True)
+
+# Langkah 2: Resample Data
+daily_data = data.resample('D').mean()
+print(daily_data.head())
+
+from statsmodels.tsa.stattools import adfuller
+# Langkah 3: Handle Missing Data
+daily_data['temperature'].interpolate(method='linear', inplace=True)
+
+# Langkah 4: Uji Stasioneritas
+# Melakukan Uji Dickey-Fuller
+def check_stationarity(timeseries):
+    result = adfuller(timeseries, autolag='AIC')
+    p_value = result[1]
+    print(f'ADF Statistic: {result[0]}')
+    print(f'p-value: {p_value}')
+    print('Stationary' if p_value < 0.05 else 'Non-Stationary')
+
+tempStatus = check_stationarity(daily_data['temperature'])
+
+# Grafik Suhu
+plt.figure(figsize=(12, 6))
+plt.plot(daily_data['temperature'])
+plt.title("Daily Average Temperature")
+plt.xlabel("Date")
+plt.ylabel("Temperature")
+plt.show()
+
+# ACF and PACF Suhu
+plt.figure(figsize=(12, 6))
+plt.subplot(211)
+plot_acf(daily_data['temperature'], ax=plt.gca())
+plt.title('ACF of Daily Average Temperature')
+plt.subplot(212)
+plot_pacf(daily_data['temperature'], ax=plt.gca())
+plt.title('PACF of Daily Average Temperature')
+plt.tight_layout()
+plt.show()
+
+# Langkah 5: Differencing
+# Melakukan differencing untuk membuat data menjadi stasioner
+differenced_temperature = daily_data['temperature'].diff().dropna()
+
+# Memeriksa stasionaritas setelah differencing
+tempStatus_diff = check_stationarity(differenced_temperature)
+
+# Grafik Suhu setelah Differencing
+plt.figure(figsize=(12, 6))
+plt.plot(differenced_temperature)
+plt.title("Differenced Daily Average Temperature")
+plt.xlabel("Date")
+plt.ylabel("Differenced Temperature")
+plt.show()
+
+# ACF and PACF Suhu setelah Differencing
+plt.figure(figsize=(12, 6))
+plt.subplot(211)
+plot_acf(differenced_temperature, ax=plt.gca())
+plt.title('ACF of Differenced Temperature')
+plt.subplot(212)
+plot_pacf(differenced_temperature, ax=plt.gca())
+plt.title('PACF of Differenced Temperature')
+plt.tight_layout()
+plt.show()
+
+# Langkah 6 : Membagi Data
+# Membagi data suhu menjadi set pelatihan dan set pengujian
+train1 = daily_data['temperature'].iloc[:80]  # 80 data pertama sebagai data pelatihan
+test1 = daily_data['temperature'].iloc[81:]  # Data dari indeks ke-81 hingga akhir sebagai data pengujian
+n = 100  # Jumlah total data 
+n_train1 = len(train1)  
+n_test1 = len(test1) 
+
+# Grafik Pembagi Data Suhu
+plt.figure(figsize=(10, 6))
+plt.plot(train1, label='Data train')
+plt.plot(test1, label='Data test')
+plt.xlabel('Date')
+plt.ylabel('Temperature')
+plt.title('Splitted Data')
+plt.legend()
+plt.grid()
+plt.show()
+
+#Langkah 7 : Menentukan Model SARIMA
+import pmdarima as pm
+
+def sarimamodel(timeseries):
+    automodel = pm.auto_arima(timeseries,
+                              start_p=0, start_q=0,   
+                              max_p=3, max_q=3,       
+                              d=None,                 
+                              test='adf',             
+                              seasonal=True,          
+                              m=12,                   
+                              start_P=0, start_Q=0,   
+                              max_P=2, max_Q=2,       
+                              D=1,                    
+                              trace=True,             
+                              stepwise=True)          
+    return automodel
+
+automodel1 = sarimamodel(train1)
+print(automodel1.summary())
+
+# Grafik Prediksi SARIMA untuk Suhu
+plt.figure(figsize=(14, 7))
+plt.plot(test1.index, test1, label='Actual', color='blue', linestyle='-', marker='o')
+plt.plot(test1.index, predictions_sarima1, label='Predicted', color='red', linestyle='--', marker='x')
+plt.title('Forecasting - SARIMA (Temperature)')
+plt.xlabel('Date')
+plt.ylabel('Temperature')
+plt.legend()
+plt.grid(True)
+
+# Format tanggal untuk sumbu x
+plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+plt.gca().xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))  # Menampilkan tanggal setiap minggu
+plt.gca().xaxis.set_minor_locator(mdates.DayLocator(interval=1))  # Menampilkan tanggal setiap hari sebagai minor ticks
+plt.gcf().autofmt_xdate()  # Memutar label tanggal untuk keterbacaan
+
+plt.tight_layout()
+plt.show()
+
+# MSE
+mse1 = mean_squared_error(test1, predictions_sarima1)
+print('MSE Temperature: %.3f' % mse1)
